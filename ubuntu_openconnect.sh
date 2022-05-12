@@ -2,10 +2,10 @@
 cp /usr/share/zoneinfo/Asia/Dubai /etc/localtime
 
 #Database Details
-db_host='209.159.152.66';
-db_user='crypticv_freedata';
+db_host='174.138.183.243';
+db_user='abolirez_novamax';
 db_pass='@@@@F1r3n3t';
-db_name='crypticv_freedata';
+db_name='abolirez_novamax';
 
 install_require()
 {
