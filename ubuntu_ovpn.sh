@@ -5,7 +5,6 @@ HOST='174.138.183.243';
 USER='abolirez_novamax';
 PASS='@@@@F1r3n3t';
 DBNAME='abolirez_novamax';
-
 PORT_TCP='1194';
 PORT_UDP='53';
 timedatectl set-timezone Asia/Riyadh
